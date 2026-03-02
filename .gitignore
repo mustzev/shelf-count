@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+.expo/
+build/
+target/
+
+# Flutter
+proto-b-flutter/.dart_tool/
+proto-b-flutter/.packages
+proto-c-rust-flutter/client/.dart_tool/
+proto-c-rust-flutter/client/.packages
+
+# Rust
+proto-c-rust-flutter/server/target/
+
+# ML models — tracked via Git LFS (see .gitattributes)
+# DVC pointer files kept for reference
+*.onnx
+!*.onnx.dvc
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Claude Code local settings (personal, not shared)
+.claude/settings.local.json
