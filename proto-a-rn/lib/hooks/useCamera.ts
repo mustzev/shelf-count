@@ -4,53 +4,140 @@ import {
   useCameraDevice,
   useCameraPermission,
   useFrameProcessor,
+  VisionCameraProxy,
 } from 'react-native-vision-camera'
 import { useSharedValue, Worklets } from 'react-native-worklets-core'
-import { type FrameData, setFrame } from '../frameStore'
+import type { TensorflowModel } from 'react-native-fast-tflite'
+import { processPostNMSOutputs } from '../ml/postprocess'
+import type { DetectionResult } from '../ml/types'
+import { setResult } from '../frameStore'
 
-type CaptureResolve = (data: FrameData) => void
+const CONFIDENCE_THRESHOLD = 0.4
 
-export function useCamera() {
+const resizePlugin = VisionCameraProxy.initFrameProcessorPlugin('resize', {})
+
+type CaptureResolve = (result: DetectionResult) => void
+
+export function useCamera(
+  model: TensorflowModel | undefined,
+  labels: (string | null)[],
+) {
   const cameraRef = useRef<Camera>(null)
   const device = useCameraDevice('back')
   const { hasPermission, requestPermission } = useCameraPermission()
   const captureRequested = useSharedValue(false)
   const resolveRef = useRef<CaptureResolve | null>(null)
+  // Ref so the bridge callback always sees the latest model/labels.
+  const modelRef = useRef<TensorflowModel | undefined>(model)
+  modelRef.current = model
+  const labelsRef = useRef(labels)
+  labelsRef.current = labels
 
-  const onFrameCaptured = Worklets.createRunOnJS(
-    (
-      buffer: ArrayBuffer,
-      width: number,
-      height: number,
-      bytesPerRow: number,
-    ) => {
-      const data: FrameData = {
-        pixels: new Uint8Array(buffer),
-        width,
-        height,
-        bytesPerRow,
+  const onPixelsReady = Worklets.createRunOnJS((pixels: number[]) => {
+    try {
+      if (!modelRef.current) {
+        console.error('[useCamera] model not loaded')
+        return
       }
-      setFrame(data)
+
+      // Model expects uint8 — pass Uint8Array directly.
+      const resized = new Uint8Array(pixels)
+
+      // Run inference on the JS thread.
+      const start = performance.now()
+      const outputs = modelRef.current.runSync([resized])
+      const timeMs = performance.now() - start
+
+      // Post-NMS EfficientDet-Lite0 outputs (4 tensors):
+      //   [0] boxes  [1, 25, 4] — normalized [y1, x1, y2, x2]
+      //   [1] classes [1, 25]   — class indices (float)
+      //   [2] scores  [1, 25]   — confidence [0, 1]
+      //   [3] count   [1]       — number of valid detections
+      const detections = processPostNMSOutputs(
+        outputs[0] as Float32Array,
+        outputs[1] as Float32Array,
+        outputs[2] as Float32Array,
+        outputs[3] as Float32Array,
+        labelsRef.current,
+        CONFIDENCE_THRESHOLD,
+      )
+      console.log(
+        `[useCamera] detections: ${detections.length}`,
+        detections.map((d) => `${d.label}(${d.confidence.toFixed(2)})`).join(', '),
+      )
+
+      const result: DetectionResult = {
+        detections,
+        count: detections.length,
+        inferenceTimeMs: timeMs,
+      }
+      setResult(result)
       if (resolveRef.current) {
-        resolveRef.current(data)
+        resolveRef.current(result)
         resolveRef.current = null
       }
-    },
-  )
+    } catch (e) {
+      console.error('[useCamera] JS inference error:', e)
+      const result: DetectionResult = {
+        detections: [],
+        count: 0,
+        inferenceTimeMs: 0,
+      }
+      setResult(result)
+      if (resolveRef.current) {
+        resolveRef.current(result)
+        resolveRef.current = null
+      }
+    }
+  })
+
+  const onFrameError = Worklets.createRunOnJS((msg: string) => {
+    console.error('[useCamera]', msg)
+    const result: DetectionResult = {
+      detections: [],
+      count: 0,
+      inferenceTimeMs: 0,
+    }
+    setResult(result)
+    if (resolveRef.current) {
+      resolveRef.current(result)
+      resolveRef.current = null
+    }
+  })
 
   const frameProcessor = useFrameProcessor(
     (frame) => {
       'worklet'
-      if (captureRequested.value) {
+      if (captureRequested.value && model != null && resizePlugin != null) {
         captureRequested.value = false
-        const buffer = frame.toArrayBuffer()
-        onFrameCaptured(buffer, frame.width, frame.height, frame.bytesPerRow)
+
+        try {
+          // Resize frame to 320x320 RGB in native C++.
+          const rawBuffer = resizePlugin.call(frame, {
+            scale: { width: 320, height: 320 },
+            pixelFormat: 'rgb',
+            dataType: 'uint8',
+          })
+
+          // Read bytes via DataView → plain number[] that can cross the bridge.
+          const dv = new DataView(rawBuffer as unknown as ArrayBuffer)
+          const size = 320 * 320 * 3
+          const pixels: number[] = new Array(size)
+          for (let i = 0; i < size; i++) {
+            pixels[i] = dv.getUint8(i)
+          }
+
+          // Send pixels to JS thread for inference.
+          onPixelsReady(pixels)
+        } catch (e) {
+          onFrameError('Worklet error: ' + String(e))
+        }
       }
     },
-    [captureRequested, onFrameCaptured],
+    [captureRequested, model, onPixelsReady, onFrameError],
   )
 
-  const captureFrame = useCallback((): Promise<FrameData> => {
+  const captureFrame = useCallback((): Promise<DetectionResult> => {
     return new Promise((resolve) => {
       resolveRef.current = resolve
       captureRequested.value = true
@@ -70,5 +157,6 @@ export function useCamera() {
     takePhoto,
     captureFrame,
     frameProcessor,
+    modelReady: model != null,
   }
 }

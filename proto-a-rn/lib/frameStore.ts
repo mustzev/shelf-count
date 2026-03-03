@@ -1,20 +1,15 @@
-export interface FrameData {
-  pixels: Uint8Array
-  width: number
-  height: number
-  bytesPerRow: number
-}
+import type { DetectionResult } from './ml/types'
 
-let stored: FrameData | null = null
+let stored: DetectionResult | null = null
 
-export function setFrame(data: FrameData): void {
+export function setResult(data: DetectionResult): void {
   stored = data
 }
 
-export function getFrame(): FrameData | null {
+export function getResult(): DetectionResult | null {
   return stored
 }
 
-export function clearFrame(): void {
+export function clearResult(): void {
   stored = null
 }

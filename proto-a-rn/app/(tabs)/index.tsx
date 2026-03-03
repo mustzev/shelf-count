@@ -1,11 +1,23 @@
 import { useRouter } from 'expo-router'
 import { useEffect } from 'react'
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import {
+  ActivityIndicator,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native'
 import { Camera } from 'react-native-vision-camera'
+import { useTensorflowModel } from 'react-native-fast-tflite'
 import { useCamera } from '../../lib/hooks/useCamera'
+import { COCO_90_LABELS } from '../../lib/ml/labels'
 
 export default function CameraScreen() {
   const router = useRouter()
+  const tfModel = useTensorflowModel(
+    require('../../assets/models/efficientdet-lite0-v2.tflite'),
+  )
+  const model = tfModel.state === 'loaded' ? tfModel.model : undefined
   const {
     cameraRef,
     device,
@@ -14,7 +26,8 @@ export default function CameraScreen() {
     takePhoto,
     captureFrame,
     frameProcessor,
-  } = useCamera()
+    modelReady,
+  } = useCamera(model, COCO_90_LABELS)
 
   useEffect(() => {
     if (!hasPermission) {
@@ -23,7 +36,7 @@ export default function CameraScreen() {
   }, [hasPermission, requestPermission])
 
   const handleCapture = async () => {
-    const [_frameData, photo] = await Promise.all([captureFrame(), takePhoto()])
+    const [_result, photo] = await Promise.all([captureFrame(), takePhoto()])
     if (photo) {
       router.push({
         pathname: '/(tabs)/results',
@@ -62,8 +75,21 @@ export default function CameraScreen() {
         pixelFormat="rgb"
         frameProcessor={frameProcessor}
       />
+      {!modelReady && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="small" color="#fff" />
+          <Text style={styles.loadingText}>Loading model…</Text>
+        </View>
+      )}
       <View style={styles.captureContainer}>
-        <TouchableOpacity style={styles.captureButton} onPress={handleCapture}>
+        <TouchableOpacity
+          style={[
+            styles.captureButton,
+            !modelReady && styles.captureButtonDisabled,
+          ]}
+          onPress={handleCapture}
+          disabled={!modelReady}
+        >
           <View style={styles.captureInner} />
         </TouchableOpacity>
       </View>
@@ -94,6 +120,22 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 60,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    gap: 8,
+  },
+  loadingText: {
+    color: '#fff',
+    fontSize: 13,
+  },
   captureContainer: {
     position: 'absolute',
     bottom: 40,
@@ -106,6 +148,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.3)',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  captureButtonDisabled: {
+    opacity: 0.4,
   },
   captureInner: {
     width: 60,
