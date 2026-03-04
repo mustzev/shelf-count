@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router'
-import { useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   ActivityIndicator,
   StyleSheet,
@@ -10,12 +10,14 @@ import {
 import { Camera } from 'react-native-vision-camera'
 import { useTensorflowModel } from 'react-native-fast-tflite'
 import { useCamera } from '../../lib/hooks/useCamera'
-import { COCO_90_LABELS } from '../../lib/ml/labels'
+import { runPhotoInference } from '../../lib/ml/photoInference'
+import { setResult } from '../../lib/frameStore'
 
 export default function CameraScreen() {
   const router = useRouter()
+  const [isProcessing, setIsProcessing] = useState(false)
   const tfModel = useTensorflowModel(
-    require('../../assets/models/efficientdet-lite0-v2.tflite'),
+    require('../../assets/models/yolov8m-sku110k.tflite'),
   )
   const model = tfModel.state === 'loaded' ? tfModel.model : undefined
   const {
@@ -24,10 +26,9 @@ export default function CameraScreen() {
     hasPermission,
     requestPermission,
     takePhoto,
-    captureFrame,
     frameProcessor,
     modelReady,
-  } = useCamera(model, COCO_90_LABELS)
+  } = useCamera(model)
 
   useEffect(() => {
     if (!hasPermission) {
@@ -35,15 +36,24 @@ export default function CameraScreen() {
     }
   }, [hasPermission, requestPermission])
 
-  const handleCapture = async () => {
-    const [_result, photo] = await Promise.all([captureFrame(), takePhoto()])
-    if (photo) {
+  const handleCapture = useCallback(async () => {
+    if (!model || isProcessing) return
+    setIsProcessing(true)
+    try {
+      const photo = await takePhoto()
+      if (!photo) return
+      const result = await runPhotoInference(photo.path, model)
+      setResult(result)
       router.push({
         pathname: '/(tabs)/results',
         params: { photoPath: photo.path },
       })
+    } catch (e) {
+      console.error('[CameraScreen] capture error:', e)
+    } finally {
+      setIsProcessing(false)
     }
-  }
+  }, [model, isProcessing, router, takePhoto])
 
   if (!hasPermission) {
     return (
@@ -85,12 +95,16 @@ export default function CameraScreen() {
         <TouchableOpacity
           style={[
             styles.captureButton,
-            !modelReady && styles.captureButtonDisabled,
+            (!modelReady || isProcessing) && styles.captureButtonDisabled,
           ]}
           onPress={handleCapture}
-          disabled={!modelReady}
+          disabled={!modelReady || isProcessing}
         >
-          <View style={styles.captureInner} />
+          {isProcessing ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <View style={styles.captureInner} />
+          )}
         </TouchableOpacity>
       </View>
     </View>

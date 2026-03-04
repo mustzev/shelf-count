@@ -46,14 +46,13 @@ List<Detection> processPostNmsOutputs({
 ///
 /// YOLOv8 single-class output tensor: [1, 5, 8400]
 ///   — 8400 candidate boxes, each column: [cx, cy, w, h, confidence]
-///   — coordinates are in pixel space (0–inputSize), NOT normalized
+///   — coordinates are already normalized 0–1
 ///
-/// Steps: transpose → confidence filter → NMS → normalize to 0–1.
+/// Steps: transpose → confidence filter → NMS → clamp to 0–1.
 List<Detection> processYoloOutputs({
   required List<double> rawOutput,
   required int numBoxes,
   required int numValues,
-  required int inputSize,
   required String label,
   required double scoreThreshold,
   double iouThreshold = 0.5,
@@ -67,10 +66,10 @@ List<Detection> processYoloOutputs({
     final score = rawOutput[4 * numBoxes + i]; // row 4, col i
     if (score < scoreThreshold) continue;
 
-    final cx = rawOutput[0 * numBoxes + i] / inputSize;
-    final cy = rawOutput[1 * numBoxes + i] / inputSize;
-    final w = rawOutput[2 * numBoxes + i] / inputSize;
-    final h = rawOutput[3 * numBoxes + i] / inputSize;
+    final cx = rawOutput[0 * numBoxes + i];
+    final cy = rawOutput[1 * numBoxes + i];
+    final w = rawOutput[2 * numBoxes + i];
+    final h = rawOutput[3 * numBoxes + i];
 
     candidates.add(_Box(
       x: cx - w / 2,

@@ -68,6 +68,8 @@ export default function ResultsScreen() {
             <Text style={styles.count}>{result.count} items detected</Text>
             <Text style={styles.timing}>
               Inference: {Math.round(result.inferenceTimeMs)}ms
+              {result.totalTimeMs != null &&
+                ` · Total: ${Math.round(result.totalTimeMs)}ms`}
             </Text>
           </>
         )}

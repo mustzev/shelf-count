@@ -15,4 +15,5 @@ export interface DetectionResult {
   detections: Detection[]
   count: number
   inferenceTimeMs: number
+  totalTimeMs?: number
 }

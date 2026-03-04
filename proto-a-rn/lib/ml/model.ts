@@ -2,37 +2,33 @@ import {
   loadTensorflowModel,
   type TensorflowModel,
 } from 'react-native-fast-tflite'
-import { filterByConfidence, mapOutputToDetections } from './postprocess'
+import { processYoloOutputs } from './postprocess'
 import type { DetectionResult } from './types'
 
-const CONFIDENCE_THRESHOLD = 0.5
+const CONFIDENCE_THRESHOLD = 0.25
+const IOU_THRESHOLD = 0.5
 
 let model: TensorflowModel | null = null
-let labels: string[] = []
 
 export async function loadModel(): Promise<void> {
   if (model) return
 
   model = await loadTensorflowModel(
-    require('../../assets/models/efficientdet-lite0.tflite'),
+    require('../../assets/models/yolov8m-sku110k.tflite'),
   )
-}
-
-export function setLabels(labelList: string[]): void {
-  labels = labelList
 }
 
 /**
  * Run inference on a preprocessed input tensor.
  *
- * EfficientDet-Lite0 input spec: [1, 320, 320, 3] uint8.
- * Pass the output of resizeNormalize() (a Uint8Array of 320*320*3 bytes)
- * directly here — no float normalisation is required for this model.
+ * YOLOv8m-SKU110K input spec: [1, 640, 640, 3] float32 NHWC, values in 0–1.
+ * Pass the output of resizeNormalizeFloat() or resizeFromRgbFloat() here.
  *
- * API change from initial scaffold: parameter changed from Float32Array to
- * Uint8Array to match the model's actual input tensor type (uint8).
+ * Output tensor: [1, 5, 8400] float32 — 8400 candidate boxes with
+ * (cx, cy, w, h, confidence) each in pixel space (0–640). processYoloOutputs
+ * handles transposition, NMS, and coordinate normalization.
  */
-export function runInference(inputData: Uint8Array): DetectionResult {
+export function runInference(inputData: Float32Array): DetectionResult {
   if (!model) {
     throw new Error('Model not loaded. Call loadModel() first.')
   }
@@ -41,25 +37,10 @@ export function runInference(inputData: Uint8Array): DetectionResult {
   const output = model.runSync([inputData])
   const inferenceTimeMs = performance.now() - start
 
-  // EfficientDet-Lite0 output format:
-  // output[0]: bounding boxes [N, 4] — [y1, x1, y2, x2] normalized
-  // output[1]: class indices [N]
-  // output[2]: confidence scores [N]
-  // output[3]: number of detections (scalar)
-  const boxes = Array.from(output[0] as Float32Array)
-  const classIndices = Array.from(output[1] as Float32Array).map(Math.round)
-  const scores = Array.from(output[2] as Float32Array)
-  const numDetections = Math.round((output[3] as Float32Array)[0])
+  // YOLOv8 output: single tensor [1, 5, 8400] as a flat Float32Array.
+  const raw = output[0] as Float32Array
 
-  const allDetections = mapOutputToDetections(
-    boxes,
-    classIndices,
-    scores,
-    numDetections,
-    labels,
-  )
-
-  const detections = filterByConfidence(allDetections, CONFIDENCE_THRESHOLD)
+  const detections = processYoloOutputs(raw, CONFIDENCE_THRESHOLD, IOU_THRESHOLD)
 
   return {
     detections,

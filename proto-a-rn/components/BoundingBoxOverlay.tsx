@@ -34,8 +34,8 @@ export function BoundingBoxOverlay({
             },
           ]}
         >
-          <Text style={styles.label}>
-            {det.label} {Math.round(det.confidence * 100)}%
+          <Text style={styles.label} numberOfLines={1}>
+            {Math.round(det.confidence * 100)}%
           </Text>
         </View>
       ))}
@@ -49,16 +49,17 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#00FF00',
     backgroundColor: 'transparent',
+    overflow: 'visible',
   },
   label: {
     position: 'absolute',
-    top: -18,
+    top: -16,
     left: 0,
     backgroundColor: '#00FF00',
     color: '#000',
     fontSize: 10,
     fontWeight: '700',
-    paddingHorizontal: 4,
+    paddingHorizontal: 2,
     paddingVertical: 1,
   },
 })

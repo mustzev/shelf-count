@@ -8,62 +8,71 @@ import {
 } from 'react-native-vision-camera'
 import { useSharedValue, Worklets } from 'react-native-worklets-core'
 import type { TensorflowModel } from 'react-native-fast-tflite'
-import { processPostNMSOutputs } from '../ml/postprocess'
+import { processYoloOutputs } from '../ml/postprocess'
 import type { DetectionResult } from '../ml/types'
 import { setResult } from '../frameStore'
 
-const CONFIDENCE_THRESHOLD = 0.4
+const CONFIDENCE_THRESHOLD = 0.25
+const IOU_THRESHOLD = 0.5
+const MODEL_INPUT_SIZE = 640
 
 const resizePlugin = VisionCameraProxy.initFrameProcessorPlugin('resize', {})
 
 type CaptureResolve = (result: DetectionResult) => void
 
-export function useCamera(
-  model: TensorflowModel | undefined,
-  labels: (string | null)[],
-) {
+export function useCamera(model: TensorflowModel | undefined) {
   const cameraRef = useRef<Camera>(null)
   const device = useCameraDevice('back')
   const { hasPermission, requestPermission } = useCameraPermission()
   const captureRequested = useSharedValue(false)
   const resolveRef = useRef<CaptureResolve | null>(null)
-  // Ref so the bridge callback always sees the latest model/labels.
+  // Ref so the bridge callback always sees the latest model.
   const modelRef = useRef<TensorflowModel | undefined>(model)
   modelRef.current = model
-  const labelsRef = useRef(labels)
-  labelsRef.current = labels
 
-  const onPixelsReady = Worklets.createRunOnJS((pixels: number[]) => {
+  const onPixelsReady = Worklets.createRunOnJS((pixels: number[], frameWidth: number, frameHeight: number) => {
     try {
       if (!modelRef.current) {
         console.error('[useCamera] model not loaded')
         return
       }
 
-      // Model expects uint8 — pass Uint8Array directly.
-      const resized = new Uint8Array(pixels)
+      // YOLOv8 expects float32 input normalized to 0–1.
+      // pixels[] contains uint8 RGB values from the resize plugin.
+      const float32Input = new Float32Array(pixels.length)
+      for (let i = 0; i < pixels.length; i++) {
+        float32Input[i] = pixels[i] / 255
+      }
 
       // Run inference on the JS thread.
       const start = performance.now()
-      const outputs = modelRef.current.runSync([resized])
+      const outputs = modelRef.current.runSync([float32Input])
       const timeMs = performance.now() - start
 
-      // Post-NMS EfficientDet-Lite0 outputs (4 tensors):
-      //   [0] boxes  [1, 25, 4] — normalized [y1, x1, y2, x2]
-      //   [1] classes [1, 25]   — class indices (float)
-      //   [2] scores  [1, 25]   — confidence [0, 1]
-      //   [3] count   [1]       — number of valid detections
-      const detections = processPostNMSOutputs(
-        outputs[0] as Float32Array,
-        outputs[1] as Float32Array,
-        outputs[2] as Float32Array,
-        outputs[3] as Float32Array,
-        labelsRef.current,
-        CONFIDENCE_THRESHOLD,
-      )
+      // YOLOv8 output: single tensor [1, 5, 8400] — flat Float32Array.
+      const raw = outputs[0] as Float32Array
+      let detections = processYoloOutputs(raw, CONFIDENCE_THRESHOLD, IOU_THRESHOLD)
+
+      // Camera sensor is landscape on Android. When phone is portrait,
+      // frame coordinates are rotated 90° from the displayed photo.
+      // Rotate bbox coordinates to match the photo orientation.
+      if (frameWidth > frameHeight) {
+        detections = detections.map((d) => ({
+          ...d,
+          bbox: {
+            x: d.bbox.y,
+            y: 1 - d.bbox.x - d.bbox.width,
+            width: d.bbox.height,
+            height: d.bbox.width,
+          },
+        }))
+      }
+
       console.log(
-        `[useCamera] detections: ${detections.length}`,
-        detections.map((d) => `${d.label}(${d.confidence.toFixed(2)})`).join(', '),
+        `[useCamera] detections: ${detections.length} (frame: ${frameWidth}x${frameHeight})`,
+        detections.slice(0, 3).map((d) =>
+          `${d.label}(${d.confidence.toFixed(2)}) @${d.bbox.x.toFixed(2)},${d.bbox.y.toFixed(2)} ${d.bbox.width.toFixed(3)}x${d.bbox.height.toFixed(3)}`
+        ).join(' | '),
       )
 
       const result: DetectionResult = {
@@ -112,23 +121,22 @@ export function useCamera(
         captureRequested.value = false
 
         try {
-          // Resize frame to 320x320 RGB in native C++.
           const rawBuffer = resizePlugin.call(frame, {
-            scale: { width: 320, height: 320 },
+            scale: { width: MODEL_INPUT_SIZE, height: MODEL_INPUT_SIZE },
             pixelFormat: 'rgb',
             dataType: 'uint8',
           })
 
           // Read bytes via DataView → plain number[] that can cross the bridge.
           const dv = new DataView(rawBuffer as unknown as ArrayBuffer)
-          const size = 320 * 320 * 3
+          const size = MODEL_INPUT_SIZE * MODEL_INPUT_SIZE * 3
           const pixels: number[] = new Array(size)
           for (let i = 0; i < size; i++) {
             pixels[i] = dv.getUint8(i)
           }
 
-          // Send pixels to JS thread for inference.
-          onPixelsReady(pixels)
+          // Send pixels + frame dimensions to JS thread for float conversion + inference.
+          onPixelsReady(pixels, frame.width, frame.height)
         } catch (e) {
           onFrameError('Worklet error: ' + String(e))
         }

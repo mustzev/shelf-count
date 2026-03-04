@@ -4,13 +4,16 @@ import 'package:image/image.dart' as img;
 import 'package:tflite_flutter/tflite_flutter.dart';
 
 import '../models/detection.dart';
-import 'labels.dart';
 import 'postprocess.dart';
 
-const _modelAsset = 'assets/models/efficientdet-lite0.tflite';
-const _inputSize = 320;
-const _confidenceThreshold = 0.4;
-const _maxDetections = 25;
+const _modelAsset = 'assets/models/yolov8m-sku110k.tflite';
+const _inputSize = 640;
+const _confidenceThreshold = 0.25;
+const _iouThreshold = 0.5;
+
+// YOLOv8 output dimensions
+const _numBoxes = 8400;
+const _numValues = 5; // [cx, cy, w, h, confidence]
 
 class MlService {
   Interpreter? _interpreter;
@@ -31,54 +34,41 @@ class MlService {
     final decoded = img.decodeImage(imageBytes);
     if (decoded == null) return null;
 
-    // Resize to 320x320
+    // Resize to 640x640
     final resized = img.copyResize(decoded, width: _inputSize, height: _inputSize);
 
-    // Convert to [1, 320, 320, 3] uint8 input tensor
+    // Convert to [1, 640, 640, 3] float32 input tensor with pixels normalized to 0–1
     final input = _imageToInputTensor(resized);
 
-    // Prepare output buffers — shapes must match model outputs exactly.
-    // tflite_flutter replaces inner list references on copyTo, so we
-    // read results from the outputs map, not from these variables.
+    // Prepare output buffer — shape must match [1, 5, 8400] as nested lists.
+    // tflite_flutter may replace inner list references on copyTo, so we
+    // read results from outputs[0] after inference, not from the local variable.
     final outputs = <int, Object>{
-      0: List.generate(1, (_) => List.generate(_maxDetections, (_) => List<double>.filled(4, 0))),
-      1: List.generate(1, (_) => List<double>.filled(_maxDetections, 0)),
-      2: List.generate(1, (_) => List<double>.filled(_maxDetections, 0)),
-      3: List<double>.filled(1, 0),
+      0: List.generate(1, (_) =>
+          List.generate(_numValues, (_) => List<double>.filled(_numBoxes, 0.0))),
     };
 
     final stopwatch = Stopwatch()..start();
     _interpreter!.runForMultipleInputs([input], outputs);
     stopwatch.stop();
 
-    // Read results from outputs map (inner references may have been replaced)
-    final outBoxesRaw = (outputs[0] as List)[0] as List;
-    final outClasses = (outputs[1] as List)[0] as List;
-    final outScores = (outputs[2] as List)[0] as List;
-    final outCount = (outputs[3] as List);
-
-    final count = (outCount[0] as num).round();
-
-    // Flatten boxes from nested list to flat List<double>
-    final flatBoxes = <double>[];
-    for (var i = 0; i < count; i++) {
-      final box = outBoxesRaw[i] as List;
-      for (final v in box) {
-        flatBoxes.add((v as num).toDouble());
+    // Read from outputs map — tflite_flutter may have replaced references.
+    // Flatten [1, 5, 8400] to row-major [5 * 8400] for processYoloOutputs.
+    final nested = (outputs[0] as List)[0] as List; // [5, 8400]
+    final rawOutput = <double>[];
+    for (final row in nested) {
+      for (final v in row as List) {
+        rawOutput.add((v as num).toDouble());
       }
     }
 
-    // Convert to List<double>
-    final scores = outScores.take(count).map((v) => (v as num).toDouble()).toList();
-    final classes = outClasses.take(count).map((v) => (v as num).toDouble()).toList();
-
-    final detections = processPostNmsOutputs(
-      boxes: flatBoxes,
-      classes: classes,
-      scores: scores,
-      count: count,
-      labels: coco90Labels,
+    final detections = processYoloOutputs(
+      rawOutput: rawOutput,
+      numBoxes: _numBoxes,
+      numValues: _numValues,
+      label: 'object',
       scoreThreshold: _confidenceThreshold,
+      iouThreshold: _iouThreshold,
     );
 
     return DetectionResult(
@@ -93,8 +83,9 @@ class MlService {
     _interpreter = null;
   }
 
-  /// Convert an image to [1, 320, 320, 3] uint8 tensor.
-  List<List<List<List<int>>>> _imageToInputTensor(img.Image image) {
+  /// Convert an image to [1, 640, 640, 3] float32 tensor with pixels
+  /// normalized to 0–1 by dividing by 255.0.
+  List<List<List<List<double>>>> _imageToInputTensor(img.Image image) {
     return [
       List.generate(
         _inputSize,
@@ -102,7 +93,11 @@ class MlService {
           _inputSize,
           (x) {
             final pixel = image.getPixel(x, y);
-            return [pixel.r.toInt(), pixel.g.toInt(), pixel.b.toInt()];
+            return [
+              pixel.r / 255.0,
+              pixel.g / 255.0,
+              pixel.b / 255.0,
+            ];
           },
         ),
       ),

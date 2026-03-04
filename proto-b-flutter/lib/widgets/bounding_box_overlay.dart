@@ -67,7 +67,7 @@ class _BoxPainter extends CustomPainter {
       canvas.drawRect(rect, paint);
 
       final textSpan = TextSpan(
-        text: ' ${det.label} ${(det.confidence * 100).round()}% ',
+        text: ' ${(det.confidence * 100).round()}% ',
         style: textStyle,
       );
       final textPainter = TextPainter(
