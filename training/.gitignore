@@ -1,0 +1,15 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Datasets (large, download via scripts)
+datasets/
+
+# Model binaries (large, exported via Colab)
+models/*.tflite
+models/*.pt
+models/*.onnx
+
+# OS
+.DS_Store
