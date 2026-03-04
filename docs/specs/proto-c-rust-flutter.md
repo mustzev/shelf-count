@@ -9,8 +9,8 @@ Two-part system: a Rust backend that runs ML inference on shelf images via an HT
 ### Server
 - **Framework:** Axum (Rust)
 - **Language:** Rust
-- **ML Runtime:** ONNX Runtime (`ort` crate) or `tch-rs` (PyTorch bindings)
-- **Model:** YOLO or EfficientDet in ONNX format
+- **ML Runtime:** ONNX Runtime (`ort` crate)
+- **Model:** YOLOv8m fine-tuned on SKU-110K in ONNX format
 - **Image processing:** `image` crate for preprocessing
 
 ### Client
@@ -23,8 +23,8 @@ Two-part system: a Rust backend that runs ML inference on shelf images via an HT
 
 ### Functional — Server
 - HTTP endpoint `POST /analyze` accepts an image (multipart/form-data)
-- Runs object detection model on the image
-- Returns JSON with bounding boxes, labels, confidence scores, and total count
+- Runs YOLOv8 object detection model on the image
+- Returns JSON with bounding boxes, confidence scores, and total count
 - Health check endpoint `GET /health`
 
 ### Functional — Client
@@ -48,7 +48,7 @@ Two-part system: a Rust backend that runs ML inference on shelf images via an HT
 **Request:**
 ```
 Content-Type: multipart/form-data
-Body: image file (JPEG/PNG)
+Body: image file (JPEG)
 ```
 
 **Response:**
@@ -57,23 +57,21 @@ Body: image file (JPEG/PNG)
   "count": 42,
   "detections": [
     {
-      "label": "product",
+      "label": "object",
       "confidence": 0.92,
       "bbox": {
-        "x": 120,
-        "y": 45,
-        "width": 80,
-        "height": 150
+        "x": 0.15,
+        "y": 0.10,
+        "width": 0.08,
+        "height": 0.15
       }
     }
   ],
-  "inference_time_ms": 340,
-  "image_dimensions": {
-    "width": 1920,
-    "height": 1080
-  }
+  "inference_time_ms": 340
 }
 ```
+
+Bounding box coordinates are normalized 0–1, matching the on-device prototypes.
 
 ### GET /health
 
@@ -93,9 +91,10 @@ Flutter App                          Rust Server
 Camera capture
     → JPEG encode
     → HTTP POST /analyze  ────────→  Receive image
-                                     → Decode + preprocess
+                                     → Decode + resize to 640×640
+                                     → Normalize to float32 0–1
                                      → ONNX Runtime inference
-                                     → Post-processing (NMS)
+                                     → YOLO postprocessing (NMS)
     ← JSON response       ←────────  → Serialize results
 Display bounding boxes
     + count overlay
@@ -117,7 +116,7 @@ proto-c-rust-flutter/
 │   │   │   ├── model.rs          # ONNX model loading + inference
 │   │   │   └── postprocess.rs    # NMS, confidence filtering
 │   │   └── error.rs              # Error types
-│   ├── models/                   # ONNX model files
+│   ├── models/                   # ONNX model files (git-ignored)
 │   ├── Cargo.toml
 │   └── Dockerfile
 ├── client/
@@ -144,7 +143,7 @@ proto-c-rust-flutter/
 - [ ] Server handles errors gracefully (bad image, model failure)
 
 ### Client
-- [ ] Flutter app builds and runs on iOS simulator / Android emulator
+- [ ] Flutter app builds and runs on Android device
 - [ ] Camera viewfinder renders with live preview
 - [ ] Image capture and upload to server works
 - [ ] Results screen shows bounding boxes and count from server response
