@@ -16,7 +16,7 @@ target/
 Thumbs.db
 
 # Environment
-.env
+# .env
 .env.local
 
 # Claude Code local settings (personal, not shared)

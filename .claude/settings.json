@@ -29,7 +29,8 @@
       "Bash(git commit:*)",
       "Bash(npm:*)",
       "Bash(npx:*)",
-      "Bash(flutter:*)"
+      "Bash(flutter:*)",
+      "Bash(cargo:*)"
     ]
   }
 }

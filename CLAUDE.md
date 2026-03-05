@@ -31,3 +31,5 @@ shelf-count/
 - **Prototype prefix:** Prefix commit messages with prototype scope when relevant, e.g. `feat(proto-a): add camera capture`
 - **Specs:** Markdown files in `docs/specs/`. Use clear sections: Overview, Requirements, API/Interface, Data Flow, Acceptance Criteria
 - **No premature abstraction:** Each prototype is independent. Do not share code between prototypes.
+- **Latest versions:** Always use the latest stable version of dependencies. Do not pin to old versions unless there is a specific compatibility issue.
+- **Consistent naming across layers:** Use the same field/variable names across all layers (server, client, API, database). No renaming or remapping between layers — if the server calls it `sku`, the API returns `sku`, and the client reads `sku`.

@@ -6,3 +6,10 @@ npx expo start --dev-client
 
 # SKU-110k Dataset
 The SKU-110k dataset is a collection of densely packed retail shelf images, designed to support research in object detection tasks
+
+# proto-c add product
+curl -X POST http://localhost:9000/products \
+  -F "sku=cola-350ml" \
+  -F "images=@cola.png" \
+  -F "images=@cola-1.png" \
+  -F "images=@cola-2.png"
