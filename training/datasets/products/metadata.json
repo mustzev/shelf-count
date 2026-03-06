@@ -1,0 +1,9 @@
+{
+  "products": [
+    {
+      "sku": "cola-350ml",
+      "name": "Coca Cola 350ml",
+      "images": 3
+    }
+  ]
+}
