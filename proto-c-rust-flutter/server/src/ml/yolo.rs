@@ -204,7 +204,7 @@ impl DetectionModel for YoloModel {
     fn run(&self, image: DynamicImage) -> Result<DetectionResult, AppError> {
         let (input, letterbox) = self.preprocess(&image);
 
-        let tensor = TensorRef::from_array_view(input.view())
+        let tensor = TensorRef::from_array_view(&input)
             .map_err(|e| AppError::internal(format!("Failed to create input tensor: {e}")))?;
 
         let start = Instant::now();
@@ -219,10 +219,10 @@ impl DetectionModel for YoloModel {
         let inference_time_ms = start.elapsed().as_millis() as u64;
 
         let predictions = outputs[0]
-            .try_extract_tensor::<f32>()
+            .try_extract_array::<f32>()
             .map_err(|e| AppError::internal(format!("Failed to extract output: {e}")))?;
 
-        let raw = predictions.1;
+        let raw = predictions.as_slice().unwrap();
         let detections = self.postprocess(raw, &letterbox);
 
         Ok(DetectionResult {

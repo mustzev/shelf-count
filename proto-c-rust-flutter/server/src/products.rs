@@ -4,7 +4,7 @@ use std::sync::RwLock;
 use crate::error::AppError;
 use crate::ml::types::{ProductRef, ProductStore};
 
-const SIMILARITY_THRESHOLD: f32 = 0.6;
+const SIMILARITY_THRESHOLD: f32 = 0.8;
 
 pub struct ProductDb {
     store: RwLock<ProductStore>,

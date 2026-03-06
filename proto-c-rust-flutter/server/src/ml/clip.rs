@@ -58,7 +58,7 @@ impl ClipModel {
         }
 
         // 3. Run through ONNX session
-        let tensor = TensorRef::from_array_view(input.view())
+        let tensor = TensorRef::from_array_view(&input)
             .map_err(|e| AppError::internal(format!("Failed to create input tensor: {e}")))?;
 
         let mut session = self
@@ -72,10 +72,10 @@ impl ClipModel {
 
         // 4. Extract output — model outputs a 512-dim L2-normalized embedding
         let predictions = outputs[0]
-            .try_extract_tensor::<f32>()
+            .try_extract_array::<f32>()
             .map_err(|e| AppError::internal(format!("Failed to extract CLIP output: {e}")))?;
 
-        let embedding: Vec<f32> = predictions.1.to_vec();
+        let embedding: Vec<f32> = predictions.as_slice().unwrap().to_vec();
         Ok(embedding)
     }
 }

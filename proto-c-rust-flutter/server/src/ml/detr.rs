@@ -41,11 +41,11 @@ impl DetrModel {
             })?;
 
         // Log tensor info so the user can adapt postprocessing
-        for input in session.inputs.iter() {
-            tracing::info!("DETR input: {} {:?}", input.name, input.input_type);
+        for input in session.inputs().iter() {
+            tracing::info!("DETR input: {}", input.name());
         }
-        for output in session.outputs.iter() {
-            tracing::info!("DETR output: {} {:?}", output.name, output.output_type);
+        for output in session.outputs().iter() {
+            tracing::info!("DETR output: {}", output.name());
         }
 
         let name = model_path
@@ -169,9 +169,9 @@ impl DetectionModel for DetrModel {
     fn run(&self, image: DynamicImage) -> Result<DetectionResult, AppError> {
         let (pixel_values, pixel_mask) = self.preprocess(&image);
 
-        let pv_tensor = TensorRef::from_array_view(pixel_values.view())
+        let pv_tensor = TensorRef::from_array_view(&pixel_values)
             .map_err(|e| AppError::internal(format!("Failed to create pixel_values tensor: {e}")))?;
-        let pm_tensor = TensorRef::from_array_view(pixel_mask.view())
+        let pm_tensor = TensorRef::from_array_view(&pixel_mask)
             .map_err(|e| AppError::internal(format!("Failed to create pixel_mask tensor: {e}")))?;
 
         let start = Instant::now();
@@ -188,19 +188,19 @@ impl DetectionModel for DetrModel {
 
         // logits: [1, num_queries, num_classes]  pred_boxes: [1, num_queries, 4]
         let logits_data = outputs[0]
-            .try_extract_tensor::<f32>()
+            .try_extract_array::<f32>()
             .map_err(|e| AppError::internal(format!("Failed to extract logits: {e}")))?;
         let boxes_data = outputs[1]
-            .try_extract_tensor::<f32>()
+            .try_extract_array::<f32>()
             .map_err(|e| AppError::internal(format!("Failed to extract boxes: {e}")))?;
 
-        let logits_shape = &logits_data.0;
-        let num_queries = logits_shape[1] as usize;
-        let num_classes = logits_shape[2] as usize;
+        let logits_shape = logits_data.shape();
+        let num_queries = logits_shape[1];
+        let num_classes = logits_shape[2];
 
         tracing::debug!("DETR output: {} queries, {} classes", num_queries, num_classes);
 
-        let detections = self.postprocess(logits_data.1, boxes_data.1, num_queries, num_classes);
+        let detections = self.postprocess(logits_data.as_slice().unwrap(), boxes_data.as_slice().unwrap(), num_queries, num_classes);
 
         Ok(DetectionResult {
             model: self.name.clone(),

@@ -30,19 +30,22 @@ class _BoxPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.green
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
-
-    final textStyle = TextStyle(
-      color: Colors.black,
-      fontSize: 10,
-      fontWeight: FontWeight.bold,
-      background: Paint()..color = Colors.green,
-    );
-
     for (final det in detections) {
+      final isClassified = det.sku != null;
+      final color = isClassified ? Colors.green : Colors.red;
+
+      final paint = Paint()
+        ..color = color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2;
+
+      final textStyle = TextStyle(
+        color: Colors.black,
+        fontSize: 10,
+        fontWeight: FontWeight.bold,
+        background: Paint()..color = color,
+      );
+
       final rect = Rect.fromLTWH(
         det.bbox.x * size.width,
         det.bbox.y * size.height,
@@ -52,12 +55,9 @@ class _BoxPainter extends CustomPainter {
 
       canvas.drawRect(rect, paint);
 
-      String labelText;
-      if (det.sku != null) {
-        labelText = ' ${det.sku} ${(det.skuConfidence! * 100).round()}% ';
-      } else {
-        labelText = ' ${(det.confidence * 100).round()}% ';
-      }
+      final labelText = isClassified
+          ? ' ${det.sku} ${(det.skuConfidence! * 100).round()}% '
+          : ' ${(det.confidence * 100).round()}% ';
 
       final textSpan = TextSpan(
         text: labelText,
