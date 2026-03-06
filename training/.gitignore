@@ -10,7 +10,7 @@ datasets/
 models/*.tflite
 models/*.pt
 models/*.onnx
-models/*.safetensors
+models/**/*.safetensors
 
 # OS
 .DS_Store
